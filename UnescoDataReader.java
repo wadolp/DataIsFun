@@ -53,7 +53,7 @@ class UnescoSite {
 
     @Override
     public String toString() {
-        return "UnescoSite{" +
+        return "UNESCO Herritage Site: " +
                 "name='" + name + '\'' +
                 ", country='" + country + '\'' +
                 ", inscriptionYear=" + inscriptionYear + // Changed from LocalDate to int
@@ -64,7 +64,7 @@ class UnescoSite {
                 ", area=" + area +
                 ", category='" + category + '\'' +
                 ", transboundary=" + transboundary +
-                '}';
+                '\n';
     }
 }
 
