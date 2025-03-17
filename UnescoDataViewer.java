@@ -8,6 +8,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -207,7 +208,7 @@ public class UnescoDataViewer extends JFrame {
         JPanel tablePanel = new JPanel(new BorderLayout());
         tablePanel.setBorder(BorderFactory.createTitledBorder("UNESCO Sites"));
 
-        // Create table model
+        // Create table model with proper types
         tableModel = new DefaultTableModel(COLUMN_NAMES, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -234,9 +235,14 @@ public class UnescoDataViewer extends JFrame {
 
         // Create table
         dataTable = new JTable(tableModel);
+
+        // Create row sorter AFTER table model is initialized
         tableSorter = new TableRowSorter<>(tableModel);
         dataTable.setRowSorter(tableSorter);
-        dataTable.setAutoCreateRowSorter(true);
+
+        // Disable auto-sorting to avoid unexpected behavior
+        dataTable.setAutoCreateRowSorter(false);
+
         dataTable.setFillsViewportHeight(true);
         dataTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
@@ -271,25 +277,77 @@ public class UnescoDataViewer extends JFrame {
         // Create sort selector
         String[] sortOptions = {"Name", "Country", "Inscription Year", "Area"};
         JComboBox<String> sortSelector = new JComboBox<>(sortOptions);
-        sortSelector.addActionListener(e -> {
-            String selected = (String) sortSelector.getSelectedItem();
-            int columnIndex = 0;
-            switch (selected) {
-                case "Country":
-                    columnIndex = 1;
-                    break;
-                case "Inscription Year":
-                    columnIndex = 2;
-                    break;
-                case "Area":
-                    columnIndex = 7;
-                    break;
-                default:
-                    columnIndex = 0; // Name
+
+        // Add radio buttons for sort direction
+        JRadioButton ascendingButton = new JRadioButton("Ascending", true);
+        JRadioButton descendingButton = new JRadioButton("Descending");
+        ButtonGroup sortDirectionGroup = new ButtonGroup();
+        sortDirectionGroup.add(ascendingButton);
+        sortDirectionGroup.add(descendingButton);
+
+        // Action to apply the current sort settings - with safety checks
+        ActionListener sortActionListener = e -> {
+            try {
+                // Make sure there's data to sort
+                if (tableModel.getRowCount() == 0) {
+                    statusLabel.setText("No data to sort.");
+                    return;
+                }
+
+                String selected = (String) sortSelector.getSelectedItem();
+                int columnIndex = 0;
+                switch (selected) {
+                    case "Country":
+                        columnIndex = 1;
+                        break;
+                    case "Inscription Year":
+                        columnIndex = 2;
+                        break;
+                    case "Area":
+                        columnIndex = 7;
+                        break;
+                    default:
+                        columnIndex = 0; // Name
+                }
+
+                // Determine sort order
+                SortOrder sortOrder = ascendingButton.isSelected() ? SortOrder.ASCENDING : SortOrder.DESCENDING;
+
+                // Safely set sort keys - clear first then add new one
+                tableSorter.setSortKeys(null);
+                tableSorter.setMaxSortKeys(1);
+
+                // Create and apply new sort key
+                List<RowSorter.SortKey> sortKeys = new ArrayList<>();
+                sortKeys.add(new RowSorter.SortKey(columnIndex, sortOrder));
+                tableSorter.setSortKeys(sortKeys);
+
+                // Update status message
+                statusLabel.setText("Sorted by " + selected + " in " +
+                        (sortOrder == SortOrder.ASCENDING ? "ascending" : "descending") +
+                        " order. Displaying " + dataTable.getRowCount() + " sites.");
+
+            } catch (Exception ex) {
+                // Handle any exceptions gracefully
+                statusLabel.setText("Error during sorting: " + ex.getMessage());
+                ex.printStackTrace();
             }
-            tableSorter.setSortKeys(List.of(new RowSorter.SortKey(columnIndex, SortOrder.ASCENDING)));
-        });
+        };
+
+        // Add action listeners
+        sortSelector.addActionListener(sortActionListener);
+        ascendingButton.addActionListener(sortActionListener);
+        descendingButton.addActionListener(sortActionListener);
+
+        // Add controls to panel
         tableControlsPanel.add(sortSelector);
+        tableControlsPanel.add(ascendingButton);
+        tableControlsPanel.add(descendingButton);
+
+        // Add a sort button for explicit sorting
+        JButton sortButton = new JButton("Apply Sort");
+        sortButton.addActionListener(sortActionListener);
+        tableControlsPanel.add(sortButton);
 
         // Add controls panel to the table panel
         tablePanel.add(tableControlsPanel, BorderLayout.SOUTH);
@@ -392,13 +450,30 @@ public class UnescoDataViewer extends JFrame {
      * Display details for the currently selected site
      */
     private void displaySelectedSiteDetails() {
-        int selectedRow = dataTable.getSelectedRow();
-        if (selectedRow >= 0 && currentSites != null) {
-            int modelRow = dataTable.convertRowIndexToModel(selectedRow);
-            if (modelRow < currentSites.size()) {
-                UnescoSite selectedSite = currentSites.get(modelRow);
-                statsPanel.displaySiteDetails(selectedSite);
+        try {
+            int selectedRow = dataTable.getSelectedRow();
+            if (selectedRow >= 0 && currentSites != null && tableModel.getRowCount() > 0) {
+                // Convert view index to model index to get the correct site
+                int modelRow = dataTable.convertRowIndexToModel(selectedRow);
+
+                if (modelRow >= 0 && modelRow < tableModel.getRowCount()) {
+                    // Get the name from the model to find the matching site
+                    String siteName = (String) tableModel.getValueAt(modelRow, 0);
+
+                    // Find the site in our currentSites list
+                    UnescoSite selectedSite = currentSites.stream()
+                            .filter(site -> site.getName().equals(siteName))
+                            .findFirst()
+                            .orElse(null);
+
+                    if (selectedSite != null) {
+                        statsPanel.displaySiteDetails(selectedSite);
+                    }
+                }
             }
+        } catch (Exception e) {
+            System.err.println("Error displaying site details: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -464,24 +539,43 @@ public class UnescoDataViewer extends JFrame {
      * @param sites list of sites to display
      */
     private void updateTable(List<UnescoSite> sites) {
-        // Clear the table
-        tableModel.setRowCount(0);
+        try {
+            // First, we need to disable sorting temporarily to prevent errors
+            // when modifying the table data
+            List<? extends RowSorter.SortKey> currentSortKeys = null;
+            if (tableSorter != null) {
+                currentSortKeys = tableSorter.getSortKeys();
+                tableSorter.setSortKeys(null);
+            }
 
-        // Add data rows
-        for (UnescoSite site : sites) {
-            Object[] rowData = {
-                    site.getName(),
-                    site.getCountry(),
-                    site.getInscriptionYear(),
-                    site.isInDanger(),
-                    site.getRemovalDate() != null ? site.getRemovalDate().toString() : "N/A",
-                    site.getLatitude(),
-                    site.getLongitude(),
-                    site.getArea(),
-                    site.getCategory(),
-                    site.isTransboundary()
-            };
-            tableModel.addRow(rowData);
+            // Clear the table
+            tableModel.setRowCount(0);
+
+            // Add data rows
+            for (UnescoSite site : sites) {
+                Object[] rowData = {
+                        site.getName(),
+                        site.getCountry(),
+                        site.getInscriptionYear(),
+                        site.isInDanger(),
+                        site.getRemovalDate() != null ? site.getRemovalDate().toString() : "N/A",
+                        site.getLatitude(),
+                        site.getLongitude(),
+                        site.getArea(),
+                        site.getCategory(),
+                        site.isTransboundary()
+                };
+                tableModel.addRow(rowData);
+            }
+
+            // Restore sort keys if they existed
+            if (tableSorter != null && currentSortKeys != null && !currentSortKeys.isEmpty()) {
+                tableSorter.setSortKeys(currentSortKeys);
+            }
+        } catch (Exception e) {
+            // Print exception for debugging
+            System.err.println("Error updating table: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
