@@ -1,4 +1,6 @@
 import javax.swing.*;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
@@ -10,17 +12,32 @@ import java.util.List;
 
 /**
  * GUI application for displaying UNESCO World Heritage Sites data
+ * with enhanced visualization features including charts and statistics
  */
 public class UnescoDataViewer extends JFrame {
     private UnescoDataReader dataReader;
+    private List<UnescoSite> currentSites;
+
+    // Table components
     private JTable dataTable;
     private DefaultTableModel tableModel;
+    private TableRowSorter<DefaultTableModel> tableSorter;
+
+    // Filter components
     private JComboBox<String> filterCategoryComboBox;
     private JTextField countryFilterTextField;
     private JCheckBox dangerStatusCheckBox;
     private JCheckBox transboundaryCheckBox;
+    private JButton applyFiltersButton;
     private JButton resetFiltersButton;
+
+    // Status components
     private JLabel statusLabel;
+
+    // Visualization panels
+    private DisplayGraphics chartPanel;
+    private DisplayStats statsPanel;
+    private JPanel detailsPanel;
 
     // Column names for the table
     private static final String[] COLUMN_NAMES = {
@@ -35,7 +52,7 @@ public class UnescoDataViewer extends JFrame {
         // Set up the main frame
         setTitle("UNESCO World Heritage Sites Viewer");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 700);
+        setSize(1300, 800);
         setLocationRelativeTo(null);
 
         // Initialize data reader
@@ -56,19 +73,147 @@ public class UnescoDataViewer extends JFrame {
      */
     private void createUIComponents() {
         // Create main panel with BorderLayout
-        JPanel mainPanel = new JPanel(new BorderLayout());
+        JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Create filter panel at the top
+        // Create top panel with title and filters
+        JPanel topPanel = createTopPanel();
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+
+        // Create table panel
+        JPanel tablePanel = createTablePanel();
+
+        // Create visualization panels
+        chartPanel = new DisplayGraphics();
+        statsPanel = new DisplayStats();
+        detailsPanel = createDetailsPanel();
+
+        // Create tabbed pane for right side
+        JTabbedPane rightTabbedPane = new JTabbedPane();
+        rightTabbedPane.addTab("Chart", null, chartPanel, "View data visualizations");
+        rightTabbedPane.addTab("Statistics", null, statsPanel, "View statistical analysis");
+        rightTabbedPane.addTab("Details", null, detailsPanel, "View details of selected site");
+
+        // Create split pane for main content
+        JSplitPane mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tablePanel, rightTabbedPane);
+        mainSplitPane.setDividerLocation(600);
+        mainSplitPane.setOneTouchExpandable(true);
+        mainPanel.add(mainSplitPane, BorderLayout.CENTER);
+
+        // Create status panel at the bottom
+        JPanel statusPanel = createStatusPanel();
+        mainPanel.add(statusPanel, BorderLayout.SOUTH);
+
+        // Add main panel to the frame
+        setContentPane(mainPanel);
+    }
+
+    /**
+     * Create the top panel with title and filters
+     * @return the top panel
+     */
+    private JPanel createTopPanel() {
+        JPanel topPanel = new JPanel(new BorderLayout());
+
+        // Create title label
+        JLabel titleLabel = new JLabel("UNESCO World Heritage Sites Explorer");
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 20));
+        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        topPanel.add(titleLabel, BorderLayout.NORTH);
+
+        // Create filter panel
         JPanel filterPanel = createFilterPanel();
-        mainPanel.add(filterPanel, BorderLayout.NORTH);
+        topPanel.add(filterPanel, BorderLayout.CENTER);
 
-        // Create table model and table
+        return topPanel;
+    }
+
+    /**
+     * Create the filter panel with controls for filtering the data
+     * @return panel with filtering controls
+     */
+    private JPanel createFilterPanel() {
+        JPanel filterPanel = new JPanel(new GridBagLayout());
+        filterPanel.setBorder(BorderFactory.createTitledBorder("Filter Options"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Category filter
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        filterPanel.add(new JLabel("Category:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        filterCategoryComboBox = new JComboBox<>(new String[]{"All", "Cultural", "Natural", "Mixed"});
+        filterPanel.add(filterCategoryComboBox, gbc);
+
+        // Country filter
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        filterPanel.add(new JLabel("Country:"), gbc);
+
+        gbc.gridx = 3;
+        gbc.weightx = 1.0;
+        countryFilterTextField = new JTextField(15);
+        filterPanel.add(countryFilterTextField, gbc);
+
+        // Danger status filter
+        gbc.gridx = 4;
+        gbc.weightx = 0.5;
+        dangerStatusCheckBox = new JCheckBox("In Danger");
+        filterPanel.add(dangerStatusCheckBox, gbc);
+
+        // Transboundary filter
+        gbc.gridx = 5;
+        gbc.weightx = 0.5;
+        transboundaryCheckBox = new JCheckBox("Transboundary");
+        filterPanel.add(transboundaryCheckBox, gbc);
+
+        // Apply filters button
+        gbc.gridx = 6;
+        gbc.weightx = 0.5;
+        applyFiltersButton = new JButton("Apply Filters");
+        applyFiltersButton.addActionListener(e -> applyFilters());
+        filterPanel.add(applyFiltersButton, gbc);
+
+        // Reset filters button
+        gbc.gridx = 7;
+        gbc.weightx = 0.5;
+        resetFiltersButton = new JButton("Reset Filters");
+        resetFiltersButton.addActionListener(e -> resetFilters());
+        filterPanel.add(resetFiltersButton, gbc);
+
+        // Load data button
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        JButton loadDataButton = new JButton("Load UNESCO Data");
+        loadDataButton.addActionListener(e -> selectAndLoadDataFile());
+        filterPanel.add(loadDataButton, gbc);
+
+        return filterPanel;
+    }
+
+    /**
+     * Create the table panel with data table
+     * @return panel with data table
+     */
+    private JPanel createTablePanel() {
+        JPanel tablePanel = new JPanel(new BorderLayout());
+        tablePanel.setBorder(BorderFactory.createTitledBorder("UNESCO Sites"));
+
+        // Create table model
         tableModel = new DefaultTableModel(COLUMN_NAMES, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;  // Make table read-only
             }
-            
+
             @Override
             public Class<?> getColumnClass(int column) {
                 switch (column) {
@@ -87,10 +232,24 @@ public class UnescoDataViewer extends JFrame {
             }
         };
 
+        // Create table
         dataTable = new JTable(tableModel);
+        tableSorter = new TableRowSorter<>(tableModel);
+        dataTable.setRowSorter(tableSorter);
         dataTable.setAutoCreateRowSorter(true);
         dataTable.setFillsViewportHeight(true);
-        
+        dataTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        // Add selection listener
+        dataTable.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+            @Override
+            public void valueChanged(ListSelectionEvent e) {
+                if (!e.getValueIsAdjusting()) {
+                    displaySelectedSiteDetails();
+                }
+            }
+        });
+
         // Set column widths
         dataTable.getColumnModel().getColumn(0).setPreferredWidth(200);  // Name
         dataTable.getColumnModel().getColumn(1).setPreferredWidth(100);  // Country
@@ -102,84 +261,78 @@ public class UnescoDataViewer extends JFrame {
 
         // Create scroll pane for the table
         JScrollPane tableScrollPane = new JScrollPane(dataTable);
-        mainPanel.add(tableScrollPane, BorderLayout.CENTER);
+        tablePanel.add(tableScrollPane, BorderLayout.CENTER);
 
-        // Create status panel at the bottom
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        statusLabel = new JLabel("Ready");
-        statusPanel.add(statusLabel);
-        mainPanel.add(statusPanel, BorderLayout.SOUTH);
+        // Create table controls panel
+        JPanel tableControlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JLabel sortLabel = new JLabel("Sort by: ");
+        tableControlsPanel.add(sortLabel);
 
-        // Add main panel to the frame
-        setContentPane(mainPanel);
+        // Create sort selector
+        String[] sortOptions = {"Name", "Country", "Inscription Year", "Area"};
+        JComboBox<String> sortSelector = new JComboBox<>(sortOptions);
+        sortSelector.addActionListener(e -> {
+            String selected = (String) sortSelector.getSelectedItem();
+            int columnIndex = 0;
+            switch (selected) {
+                case "Country":
+                    columnIndex = 1;
+                    break;
+                case "Inscription Year":
+                    columnIndex = 2;
+                    break;
+                case "Area":
+                    columnIndex = 7;
+                    break;
+                default:
+                    columnIndex = 0; // Name
+            }
+            tableSorter.setSortKeys(List.of(new RowSorter.SortKey(columnIndex, SortOrder.ASCENDING)));
+        });
+        tableControlsPanel.add(sortSelector);
+
+        // Add controls panel to the table panel
+        tablePanel.add(tableControlsPanel, BorderLayout.SOUTH);
+
+        return tablePanel;
     }
 
     /**
-     * Create the filter panel with controls for filtering the data
-     * @return panel with filtering controls
+     * Create the details panel for showing information about a selected site
+     * @return panel with details information
      */
-    private JPanel createFilterPanel() {
-        JPanel filterPanel = new JPanel(new GridBagLayout());
-        filterPanel.setBorder(BorderFactory.createTitledBorder("Filter Options"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.anchor = GridBagConstraints.WEST;
+    private JPanel createDetailsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Category filter
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        filterPanel.add(new JLabel("Category:"), gbc);
+        // Create text area for details
+        JTextArea detailsArea = new JTextArea();
+        detailsArea.setEditable(false);
+        detailsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        detailsArea.setLineWrap(true);
+        detailsArea.setWrapStyleWord(true);
+        detailsArea.setText("Select a site in the table to see details.");
 
-        gbc.gridx = 1;
-        filterCategoryComboBox = new JComboBox<>(new String[]{"All", "Cultural", "Natural", "Mixed"});
-        filterPanel.add(filterCategoryComboBox, gbc);
+        // Add text area to scroll pane
+        JScrollPane scrollPane = new JScrollPane(detailsArea);
+        panel.add(scrollPane, BorderLayout.CENTER);
 
-        // Country filter
-        gbc.gridx = 2;
-        filterPanel.add(new JLabel("Country:"), gbc);
+        return panel;
+    }
 
-        gbc.gridx = 3;
-        countryFilterTextField = new JTextField(15);
-        filterPanel.add(countryFilterTextField, gbc);
+    /**
+     * Create the status panel for showing status information
+     * @return panel with status information
+     */
+    private JPanel createStatusPanel() {
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        // Danger status filter
-        gbc.gridx = 4;
-        dangerStatusCheckBox = new JCheckBox("In Danger");
-        filterPanel.add(dangerStatusCheckBox, gbc);
+        statusLabel = new JLabel("Ready");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        statusPanel.add(statusLabel, BorderLayout.WEST);
 
-        // Transboundary filter
-        gbc.gridx = 5;
-        transboundaryCheckBox = new JCheckBox("Transboundary");
-        filterPanel.add(transboundaryCheckBox, gbc);
-
-        // Apply filters button
-        gbc.gridx = 6;
-        JButton applyFiltersButton = new JButton("Apply Filters");
-        applyFiltersButton.addActionListener(e -> applyFilters());
-        filterPanel.add(applyFiltersButton, gbc);
-
-        // Reset filters button
-        gbc.gridx = 7;
-        resetFiltersButton = new JButton("Reset Filters");
-        resetFiltersButton.addActionListener(e -> resetFilters());
-        filterPanel.add(resetFiltersButton, gbc);
-
-        // Load data button
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.gridwidth = 2;
-        JButton loadDataButton = new JButton("Load UNESCO Data");
-        loadDataButton.addActionListener(e -> selectAndLoadDataFile());
-        filterPanel.add(loadDataButton, gbc);
-
-        // Statistics button
-        gbc.gridx = 2;
-        gbc.gridwidth = 2;
-        JButton statsButton = new JButton("Show Statistics");
-        statsButton.addActionListener(e -> showStatistics());
-        filterPanel.add(statsButton, gbc);
-
-        return filterPanel;
+        return statusPanel;
     }
 
     /**
@@ -187,13 +340,13 @@ public class UnescoDataViewer extends JFrame {
      */
     private void applyFilters() {
         List<UnescoSite> filteredSites = dataReader.getAllSites();
-        
+
         // Apply category filter
         String selectedCategory = (String) filterCategoryComboBox.getSelectedItem();
         if (!"All".equals(selectedCategory)) {
             filteredSites = dataReader.getSitesByCategory(selectedCategory);
         }
-        
+
         // Apply country filter
         String countryFilter = countryFilterTextField.getText().trim();
         if (!countryFilter.isEmpty()) {
@@ -201,23 +354,23 @@ public class UnescoDataViewer extends JFrame {
                     .filter(site -> site.getCountry().toLowerCase().contains(countryFilter.toLowerCase()))
                     .toList();
         }
-        
+
         // Apply danger status filter
         if (dangerStatusCheckBox.isSelected()) {
             filteredSites = filteredSites.stream()
                     .filter(UnescoSite::isInDanger)
                     .toList();
         }
-        
+
         // Apply transboundary filter
         if (transboundaryCheckBox.isSelected()) {
             filteredSites = filteredSites.stream()
                     .filter(UnescoSite::isTransboundary)
                     .toList();
         }
-        
-        // Update table with filtered data
-        updateTable(filteredSites);
+
+        // Update data display
+        updateData(filteredSites);
         statusLabel.setText("Displaying " + filteredSites.size() + " sites");
     }
 
@@ -229,25 +382,24 @@ public class UnescoDataViewer extends JFrame {
         countryFilterTextField.setText("");
         dangerStatusCheckBox.setSelected(false);
         transboundaryCheckBox.setSelected(false);
-        
-        // Update table with all data
-        updateTable(dataReader.getAllSites());
+
+        // Update data display
+        updateData(dataReader.getAllSites());
         statusLabel.setText("Displaying " + dataReader.getAllSites().size() + " sites");
     }
 
     /**
-     * Show statistics about the UNESCO sites
+     * Display details for the currently selected site
      */
-    private void showStatistics() {
-        String statistics = dataReader.getStatistics();
-        JTextArea textArea = new JTextArea(statistics);
-        textArea.setEditable(false);
-        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        
-        JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(500, 300));
-        
-        JOptionPane.showMessageDialog(this, scrollPane, "UNESCO Sites Statistics", JOptionPane.INFORMATION_MESSAGE);
+    private void displaySelectedSiteDetails() {
+        int selectedRow = dataTable.getSelectedRow();
+        if (selectedRow >= 0 && currentSites != null) {
+            int modelRow = dataTable.convertRowIndexToModel(selectedRow);
+            if (modelRow < currentSites.size()) {
+                UnescoSite selectedSite = currentSites.get(modelRow);
+                statsPanel.displaySiteDetails(selectedSite);
+            }
+        }
     }
 
     /**
@@ -264,16 +416,17 @@ public class UnescoDataViewer extends JFrame {
                 return "CSV Files (*.csv)";
             }
         });
-        
+
         int result = fileChooser.showOpenDialog(this);
         if (result == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             try {
                 dataReader.readCsvFile(selectedFile.getAbsolutePath());
-                updateTable(dataReader.getAllSites());
-                statusLabel.setText("Loaded " + dataReader.getAllSites().size() + " sites from " + selectedFile.getName());
+                List<UnescoSite> allSites = dataReader.getAllSites();
+                updateData(allSites);
+                statusLabel.setText("Loaded " + allSites.size() + " sites from " + selectedFile.getName());
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Error loading file: " + ex.getMessage(), 
+                JOptionPane.showMessageDialog(this, "Error loading file: " + ex.getMessage(),
                         "File Load Error", JOptionPane.ERROR_MESSAGE);
                 statusLabel.setText("Error loading file");
             }
@@ -287,11 +440,23 @@ public class UnescoDataViewer extends JFrame {
         try {
             // Try to load default file
             dataReader.readCsvFile("allsites.csv");
-            updateTable(dataReader.getAllSites());
-            statusLabel.setText("Loaded " + dataReader.getAllSites().size() + " sites");
+            List<UnescoSite> allSites = dataReader.getAllSites();
+            updateData(allSites);
+            statusLabel.setText("Loaded " + allSites.size() + " sites");
         } catch (IOException ex) {
             statusLabel.setText("No data loaded. Use 'Load UNESCO Data' button to load a file.");
         }
+    }
+
+    /**
+     * Update all data visualization components
+     * @param sites list of sites to display
+     */
+    private void updateData(List<UnescoSite> sites) {
+        this.currentSites = sites;
+        updateTable(sites);
+        chartPanel.updateVisualization(sites);
+        statsPanel.updateStatistics(sites);
     }
 
     /**
@@ -301,26 +466,33 @@ public class UnescoDataViewer extends JFrame {
     private void updateTable(List<UnescoSite> sites) {
         // Clear the table
         tableModel.setRowCount(0);
-        
+
         // Add data rows
         for (UnescoSite site : sites) {
             Object[] rowData = {
-                site.getName(),
-                site.getCountry(),
-                site.getInscriptionYear(),
-                site.isInDanger(),
-                site.getRemovalDate() != null ? site.getRemovalDate().toString() : "N/A",
-                site.getLatitude(),
-                site.getLongitude(),
-                site.getArea(),
-                site.getCategory(),
-                site.isTransboundary()
+                    site.getName(),
+                    site.getCountry(),
+                    site.getInscriptionYear(),
+                    site.isInDanger(),
+                    site.getRemovalDate() != null ? site.getRemovalDate().toString() : "N/A",
+                    site.getLatitude(),
+                    site.getLongitude(),
+                    site.getArea(),
+                    site.getCategory(),
+                    site.isTransboundary()
             };
             tableModel.addRow(rowData);
         }
-        
-        // Update status
-        statusLabel.setText("Displaying " + sites.size() + " UNESCO World Heritage Sites");
+    }
+
+    /**
+     * Update the chart visualization
+     * Called when the chart type is changed
+     */
+    public void updateCharts() {
+        if (currentSites != null) {
+            chartPanel.updateVisualization(currentSites);
+        }
     }
 
     /**
@@ -333,7 +505,7 @@ public class UnescoDataViewer extends JFrame {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        
+
         // Start the application on the EDT
         SwingUtilities.invokeLater(() -> new UnescoDataViewer());
     }
