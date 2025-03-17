@@ -38,7 +38,6 @@ public class UnescoDataViewer extends JFrame {
     // Visualization panels
     private DisplayGraphics chartPanel;
     private DisplayStats statsPanel;
-    private JPanel detailsPanel;
 
     // Column names for the table
     private static final String[] COLUMN_NAMES = {
@@ -87,13 +86,13 @@ public class UnescoDataViewer extends JFrame {
         // Create visualization panels
         chartPanel = new DisplayGraphics();
         statsPanel = new DisplayStats();
-        detailsPanel = createDetailsPanel();
+
 
         // Create tabbed pane for right side
         JTabbedPane rightTabbedPane = new JTabbedPane();
         rightTabbedPane.addTab("Chart", null, chartPanel, "View data visualizations");
         rightTabbedPane.addTab("Statistics", null, statsPanel, "View statistical analysis");
-        rightTabbedPane.addTab("Details", null, detailsPanel, "View details of selected site");
+
 
         // Create split pane for main content
         JSplitPane mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tablePanel, rightTabbedPane);
